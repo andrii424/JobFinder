@@ -21,6 +21,8 @@ Binds to 127.0.0.1 by default (local tool, no auth - see README).
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import re
@@ -49,9 +51,9 @@ SORT_OPTIONS: dict[str, str] = {
 }
 
 import uvicorn
-from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
@@ -318,11 +320,65 @@ async def ingest(payload: IngestPayload, background_tasks: BackgroundTasks):
 # Job listing + detail                                                        #
 # --------------------------------------------------------------------------- #
 
+# The filter panel on the Jobs page. Labels live here so the panel, the chips
+# under the toolbar and the export all agree on what each value means.
+_FILTER_STATUS = {"saved": "Saved", "pinned": "Pinned", "checked": "Deep-checked",
+                  "unscored": "Not scored yet"}
+_FILTER_SINCE = {"today": "Today", "3d": "Last 3 days", "7d": "Last 7 days",
+                 "30d": "Last 30 days"}
+_FILTER_MIN_SCORES = (50, 60, 70, 80, 90)
+
+
+def _narrow_from(view: str, status: str, company: str, source: str,
+                 since: str, min_score: str) -> queries.Narrow:
+    """Query-string filters -> a Narrow. Anything unrecognised is dropped
+    rather than rejected: a stale bookmark should still open the page."""
+    cutoff = None
+    now = datetime.now().astimezone()
+    if since == "today":
+        cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif since in _FILTER_SINCE:
+        cutoff = now - timedelta(days=int(since[:-1]))
+    ms = int(min_score) if min_score.isdigit() and 0 <= int(min_score) <= 100 else None
+    return queries.Narrow(
+        status=status if status in _FILTER_STATUS else "",
+        company=company.strip(),
+        source=source.strip(),
+        since=cutoff.astimezone(timezone.utc).isoformat(timespec="seconds") if cutoff else "",
+        # On Applied, "when" means when you applied, not when it was found.
+        date_col="applied_at" if view == "applied" else "scraped_at",
+        min_score=ms,
+    )
+
+
+async def _jobs_for_tab(view: str, threshold: int, *, stage: str, q: str,
+                        narrow: queries.Narrow, order: str,
+                        limit: int | None = None) -> list[dict]:
+    """The rows of one Jobs tab. The page and the CSV export both come here,
+    so an export is always the list you were looking at."""
+    if view == "applied":
+        return await queries.list_applied(stage or None, limit=limit, order=order,
+                                          q=q, narrow=narrow)
+    if view == "saved":
+        return await queries.list_favorites(order=order, q=q, narrow=narrow)
+    if view == "strong":
+        return await queries.list_strong_jobs(threshold, limit=limit, order=order,
+                                              q=q, narrow=narrow)
+    # 'all' - the firehose: every not-yet-applied job
+    return await queries.list_jobs(applied=0, limit=limit, order=order, q=q, narrow=narrow)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(
     request: Request,
     view: str = "strong",   # first tab: To review
     stage: str = "",        # Applied tab only: narrow to one pipeline stage
+    q: str = "",            # search box: title / company / location contains
+    status: str = "",       # filter panel - see _narrow_from()
+    company: str = "",
+    source: str = "",
+    since: str = "",
+    min_score: str = Query("", alias="min"),
 ):
     """Four tabs, firehose-first: 'all' (every not-yet-applied job), 'strong'
     (the "To review" list: score >= threshold or pinned), 'saved' (favorites),
@@ -346,14 +402,25 @@ async def index(
     # queries.SORTS still holds the others, so bringing the menu back is a
     # template change rather than a rewrite.
     sort = "applied" if view == "applied" else "recent"
-    if view == "applied":
-        jobs = await queries.list_applied(stage or None, limit=LIST_LIMIT, order=sort)
-    elif view == "saved":
-        jobs = await queries.list_favorites(order=sort)
-    elif view == "strong":
-        jobs = await queries.list_strong_jobs(threshold, limit=LIST_LIMIT, order=sort)
-    else:  # 'all' - the firehose: every not-yet-applied job
-        jobs = await queries.list_jobs(applied=0, limit=LIST_LIMIT, order=sort)
+    narrow = _narrow_from(view, status, company, source, since, min_score)
+    jobs = await _jobs_for_tab(view, threshold, stage=stage, q=q, narrow=narrow,
+                               order=sort, limit=LIST_LIMIT)
+
+    # What is narrowing the list right now, as removable chips. Stage is not
+    # here: on Applied it already has its own row of chips.
+    source_names = {v: n for v, n, _ in SEARCH_SOURCE_OPTIONS}
+    active_filters = []
+    if narrow.status:
+        active_filters.append(("status", _FILTER_STATUS[narrow.status]))
+    if narrow.company:
+        active_filters.append(("company", narrow.company))
+    if narrow.source:
+        active_filters.append(("source", source_names.get(narrow.source, narrow.source)))
+    if narrow.since:
+        active_filters.append(("since", ("Applied " if view == "applied" else "Found ")
+                               + _FILTER_SINCE[since].lower()))
+    if narrow.min_score is not None:
+        active_filters.append(("min", f"Score {narrow.min_score}+"))
 
     # Weekly/daily applied stats for the dashboard band. Week starts Monday.
     now_local = datetime.now().astimezone()
@@ -384,6 +451,23 @@ async def index(
             "jobs": jobs,
             "view": view,
             "stage": stage,
+            "q": q.strip(),
+            "active_filters": active_filters,
+            # The panel's current values, already validated by _narrow_from().
+            "filters": {
+                "status": narrow.status, "company": narrow.company, "source": narrow.source,
+                "since": since if narrow.since else "",
+                "min": "" if narrow.min_score is None else str(narrow.min_score),
+            },
+            # Options for the filter panel. It sits outside the AJAX-swapped
+            # list, so it is filled once per page load.
+            "filter_options": {
+                "status": _FILTER_STATUS,
+                "since": _FILTER_SINCE,
+                "min": _FILTER_MIN_SCORES,
+                "companies": await queries.list_companies(),
+                "sources": [(src, source_names.get(src, src)) for src in await queries.list_sources()],
+            },
             "stage_counts": stage_counts,
             "stage_labels": pipeline.LABELS,
             "threshold": threshold,
@@ -399,6 +483,49 @@ async def index(
             # Human names for the per-row source badge.
             "source_labels": {v: n for v, n, _ in SEARCH_SOURCE_OPTIONS},
         },
+    )
+
+
+_CSV_COLUMNS = ["score", "title", "company", "location", "url", "match_summary",
+                "source", "posted_at", "scraped_at", "stage"]
+
+
+def _csv_cell(value) -> str:
+    """Scraped text goes into a file people open in Excel: a title starting with
+    '=', '+', '-' or '@' would run as a formula there, so it is quoted out."""
+    s = "" if value is None else str(value)
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
+@app.get("/export.csv")
+async def export_csv(view: str = "strong", stage: str = "", q: str = "",
+                     status: str = "", company: str = "", source: str = "",
+                     since: str = "", min_score: str = Query("", alias="min")):
+    """The current Jobs tab as CSV, with its search and filters - every row,
+    not just the LIST_LIMIT on screen, and best score first (Applied keeps its
+    applied-at order)."""
+    app_settings = await queries.get_app_settings()
+    threshold = int(app_settings.get("copilot_min_score", 60))
+    view = view if view in ("all", "strong", "saved", "applied") else "strong"
+    stage = stage if pipeline.is_valid(stage) else ""
+    jobs = await _jobs_for_tab(
+        view, threshold, stage=stage, q=q,
+        narrow=_narrow_from(view, status, company, source, since, min_score),
+        order="applied" if view == "applied" else "score")
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_CSV_COLUMNS)
+    for job in jobs:
+        # `stage` defaults to 'applied' in the table; it only means something once applied.
+        row = {**job, "stage": job.get("stage") if job.get("applied") else ""}
+        writer.writerow([_csv_cell(row.get(c)) for c in _CSV_COLUMNS])
+    filename = f"jobfinder-{view}-{datetime.now().strftime('%Y-%m-%d')}.csv"
+    # BOM so Excel reads the file as UTF-8 instead of mangling non-ASCII names.
+    return Response(
+        content="﻿" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -815,6 +942,42 @@ async def toggle_applied(job_id: int, next: str = Form("/")):
 async def delete_job_route(job_id: int, next: str = Form("/")):
     await queries.delete_job(job_id)
     return RedirectResponse(url=next or "/", status_code=303)
+
+
+@app.post("/jobs/bulk")
+async def bulk_jobs_route(action: str = Form(...), ids: list[int] = Form(...),
+                         stage: str = Form("")):
+    """One action over the rows ticked on the Jobs page. Each one goes through
+    the same query the single-row button uses, so a bulk action can never mean
+    something the row button does not.
+
+    'applied' and 'save' only SET the flag. The row buttons toggle, but a
+    selection mixes both states and toggling would undo half of it. Already
+    applied jobs are skipped, because set_applied() restamps applied_at and
+    that would move them into today's goal and this week's count."""
+    if action == "stage" and not pipeline.is_valid(stage):
+        return JSONResponse({"error": "unknown stage"}, status_code=400)
+    if action not in ("delete", "applied", "save", "stage"):
+        return JSONResponse({"error": "unknown action"}, status_code=400)
+    done = 0
+    for job_id in dict.fromkeys(ids):   # de-duplicated, order kept
+        job = await queries.get_job(job_id)
+        if job is None:
+            continue
+        if action == "delete":
+            await queries.delete_job(job_id)
+        elif action == "applied":
+            if job.get("applied"):
+                continue
+            await queries.set_applied(job_id, 1)
+        elif action == "save":
+            if job.get("favorite"):
+                continue
+            await queries.toggle_favorite(job_id)
+        else:
+            await queries.set_stage(job_id, stage)
+        done += 1
+    return JSONResponse({"ok": True, "done": done})
 
 
 @app.post("/jobs/clear")

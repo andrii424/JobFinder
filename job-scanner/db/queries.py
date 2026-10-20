@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import unicodedata
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -337,6 +338,89 @@ def _job_filters(
     return where, params
 
 
+def _with_search(where: str, params: list[Any], q: str | None) -> tuple[str, list[Any]]:
+    """Narrow a WHERE to jobs whose title, company or location contains `q`.
+    The list shows only the newest LIST_LIMIT rows; search is how an older one
+    is found at all. `%` and `_` in the text are matched literally."""
+    q = (q or "").strip()
+    if not q:
+        return where, params
+    like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    clause = ("(title LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\' "
+              "OR location LIKE ? ESCAPE '\\')")
+    where = f"{where} AND {clause}" if where else f"WHERE {clause}"
+    return where, [*params, like, like, like]
+
+
+@dataclass(frozen=True)
+class Narrow:
+    """The filter panel on the Jobs page. Every field narrows; the empty
+    default narrows nothing, so a tab without filters lists what it always did."""
+    status: str = ""             # a key of _STATUS_SQL
+    company: str = ""            # exact name, any case
+    source: str = ""             # 'linkedin', 'remotive', ...
+    since: str = ""              # ISO-8601 UTC; only rows on/after it
+    date_col: str = "scraped_at"  # 'applied_at' on the Applied tab
+    min_score: int | None = None
+
+    def active(self) -> bool:
+        return bool(self.status or self.company or self.source or self.since
+                    or self.min_score is not None)
+
+
+_STATUS_SQL = {
+    "saved": "COALESCE(favorite, 0) = 1",
+    "pinned": "COALESCE(pinned, 0) = 1",
+    "checked": "COALESCE(advanced, 0) = 1",   # the deep CV check has run
+    "unscored": "score IS NULL",
+}
+
+
+def _with_narrow(where: str, params: list[Any], n: Narrow | None) -> tuple[str, list[Any]]:
+    if n is None:
+        return where, params
+    clauses: list[str] = []
+    extra: list[Any] = []
+    if n.status in _STATUS_SQL:
+        clauses.append(_STATUS_SQL[n.status])
+    if n.company:
+        clauses.append("company = ? COLLATE NOCASE")
+        extra.append(n.company)
+    if n.source:
+        clauses.append("source = ?")
+        extra.append(n.source)
+    if n.since:
+        # Column names cannot be bound, so the choice is a whitelist.
+        col = "applied_at" if n.date_col == "applied_at" else "scraped_at"
+        clauses.append(f"{col} >= ?")
+        extra.append(n.since)
+    if n.min_score is not None:
+        clauses.append("score >= ?")
+        extra.append(int(n.min_score))
+    if not clauses:
+        return where, params
+    joined = " AND ".join(clauses)
+    where = f"{where} AND {joined}" if where else f"WHERE {joined}"
+    return where, [*params, *extra]
+
+
+async def list_companies() -> list[tuple[str, int]]:
+    """Every company with how many jobs it has, A-Z, for the filter menu."""
+    async with conn.connect() as db:
+        cur = await db.execute(
+            "SELECT company, COUNT(*) FROM jobs "
+            "WHERE company IS NOT NULL AND TRIM(company) <> '' "
+            "GROUP BY company COLLATE NOCASE ORDER BY company COLLATE NOCASE")
+        return [(r[0], int(r[1])) for r in await cur.fetchall()]
+
+
+async def list_sources() -> list[str]:
+    """The sources that actually have jobs - an empty source is not a choice."""
+    async with conn.connect() as db:
+        cur = await db.execute("SELECT DISTINCT source FROM jobs ORDER BY source")
+        return [r[0] for r in await cur.fetchall() if r[0]]
+
+
 # Newest first, everywhere. The score is shown on each row as a label, so the
 # list reads as a feed of what just came in; `id DESC` breaks ties within the
 # same scan (scraped_at has second resolution). NOTE: this also decides WHICH
@@ -372,10 +456,14 @@ async def list_jobs(
     below_or_unscored: int | None = None,
     limit: int | None = None,
     order: str = "recent",
+    q: str = "",
+    narrow: Narrow | None = None,
 ) -> list[dict[str, Any]]:
     """Filterable listing for the web UI. `limit` caps rows (keeps big lists
     fast to render). `order` is a key of SORTS."""
     where, params = _job_filters(min_score, max_score, scored_only, applied, below_or_unscored)
+    where, params = _with_search(where, params, q)
+    where, params = _with_narrow(where, params, narrow)
     order_by = _order_by(order)
     query = f"SELECT * FROM jobs {where} {order_by}"
     if limit is not None:
@@ -408,10 +496,12 @@ _STRONG_WHERE = (
 
 
 async def list_strong_jobs(threshold: int, limit: int | None = None,
-                           order: str = "recent") -> list[dict[str, Any]]:
+                           order: str = "recent", q: str = "",
+                           narrow: Narrow | None = None) -> list[dict[str, Any]]:
     """Jobs at/above the match threshold OR pinned in by hand."""
-    query = f"SELECT * FROM jobs {_STRONG_WHERE} {_order_by(order)}"
-    params: list[Any] = [int(threshold)]
+    where, params = _with_search(_STRONG_WHERE, [int(threshold)], q)
+    where, params = _with_narrow(where, params, narrow)
+    query = f"SELECT * FROM jobs {where} {_order_by(order)}"
     if limit is not None:
         query += " LIMIT ?"
         params.append(int(limit))
@@ -542,12 +632,13 @@ async def count_applied_since(iso_ts: str) -> int:
         return int(row[0]) if row else 0
 
 
-async def list_favorites(order: str = "recent") -> list[dict[str, Any]]:
+async def list_favorites(order: str = "recent", q: str = "",
+                         narrow: Narrow | None = None) -> list[dict[str, Any]]:
+    where, params = _with_search("WHERE favorite = 1", [], q)
+    where, params = _with_narrow(where, params, narrow)
     async with conn.connect() as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            f"SELECT * FROM jobs WHERE favorite = 1 {_order_by(order)}"
-        )
+        cur = await db.execute(f"SELECT * FROM jobs {where} {_order_by(order)}", params)
         return [_row_to_dict(r) for r in await cur.fetchall()]
 
 
@@ -1193,14 +1284,17 @@ async def set_stage(job_id: int, stage: str) -> None:
 
 
 async def list_applied(stage: str | None = None, limit: int | None = None,
-                       order: str = "applied") -> list[dict[str, Any]]:
+                       order: str = "applied", q: str = "",
+                       narrow: Narrow | None = None) -> list[dict[str, Any]]:
     """Applications, most recently applied first, optionally one stage only."""
-    query = "SELECT * FROM jobs WHERE COALESCE(applied, 0) = 1"
+    where = "WHERE COALESCE(applied, 0) = 1"
     params: list[Any] = []
     if stage:
-        query += " AND COALESCE(stage, 'applied') = ?"
+        where += " AND COALESCE(stage, 'applied') = ?"
         params.append(stage)
-    query += f" {_order_by(order, default='applied')}"
+    where, params = _with_search(where, params, q)
+    where, params = _with_narrow(where, params, narrow)
+    query = f"SELECT * FROM jobs {where} {_order_by(order, default='applied')}"
     if limit is not None:
         query += " LIMIT ?"
         params.append(int(limit))

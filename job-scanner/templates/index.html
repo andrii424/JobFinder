@@ -65,14 +65,100 @@
       <a class="tab {{ 'active' if view=='saved' else '' }}" href="/?view=saved">Saved ({{ counts.saved }})</a>
       <a class="tab {{ 'active' if view=='applied' else '' }}" href="/?view=applied">Applied ({{ counts.applied }})</a>
     </div>
+    <div style="display:flex; align-items:center; gap:var(--sp-2);">
+    {# Search and the menu sit OUTSIDE #list-tools: that node is re-rendered on
+       every scan refresh, which would eat keystrokes and close an open menu. #}
+    <label class="job-search" title="Search this tab">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" id="job-search" value="{{ q }}" placeholder="Search title, company, place"
+             autocomplete="off" spellcheck="false" aria-label="Search jobs">
+    </label>
+    <div class="filters" id="filters">
+      <button class="btn secondary filters__btn" type="button" aria-haspopup="dialog" aria-expanded="false">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8.5V19l-4 2v-7.5z"/></svg>
+        Filters
+        <span class="filters__n" {% if not active_filters %}hidden{% endif %}>{{ active_filters|length }}</span>
+      </button>
+      {# Outside #jobs-list like the search box: filled once per page load. #}
+      <div class="filters__panel" role="dialog" aria-label="Filters" hidden>
+        <div class="filters__grid">
+          <label class="filters__field">
+            <span>Status</span>
+            <select data-param="status">
+              <option value="">Any status</option>
+              {% for value, label in filter_options.status.items() %}
+                <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="filters__field">
+            <span>Score</span>
+            <select data-param="min">
+              <option value="">Any score</option>
+              {% for n in filter_options.min %}
+                <option value="{{ n }}" {% if filters.min == n|string %}selected{% endif %}>{{ n }}+</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="filters__field filters__field--wide">
+            <span>Company</span>
+            <select data-param="company">
+              <option value="">Any company</option>
+              {% for name, n in filter_options.companies %}
+                <option value="{{ name }}" {% if filters.company|lower == name|lower %}selected{% endif %}>{{ name }} ({{ n }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="filters__field">
+            <span data-date-label>{{ 'Applied' if view == 'applied' else 'Found' }}</span>
+            <select data-param="since">
+              <option value="">Any time</option>
+              {% for value, label in filter_options.since.items() %}
+                <option value="{{ value }}" {% if filters.since == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="filters__field">
+            <span>Source</span>
+            <select data-param="source">
+              <option value="">Any source</option>
+              {% for value, label in filter_options.sources %}
+                <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="filters__foot">
+          <button class="filters__reset" type="button" data-filter-reset>Reset filters</button>
+        </div>
+      </div>
+    </div>
     <div id="list-tools">
       {% if jobs and view in ('all', 'strong') %}
       <form method="post" action="/jobs/clear" data-ajax style="margin:0"
-            data-confirm="{{ 'Clear ALL scanned jobs? Saved, applied and pinned ones are kept.' if view=='all' else 'Clear the To review list (score ≥ ' ~ threshold ~ ')? Saved, applied and pinned ones are kept.' }}">
+            data-confirm="{{ 'Clear ALL scanned jobs?' if view=='all' else 'Clear the To review list (score ≥ ' ~ threshold ~ ')?' }}"
+            data-confirm-text="Saved, applied and pinned jobs are kept." data-confirm-yes="Yes, clear">
         <input type="hidden" name="view" value="{{ view }}">
         <button class="btn clear" type="submit">Clear results</button>
       </form>
       {% endif %}
+    </div>
+    <div class="kebab" id="list-menu">
+      <button class="icon-btn" type="button" title="More" aria-haspopup="menu" aria-expanded="false">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+      </button>
+      <div class="kebab__menu" role="menu" hidden>
+        <button class="kebab__item" type="button" role="menuitem" data-menu="select">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 12.5l3 3 5-6"/></svg>
+          Select jobs
+        </button>
+        {# Exports the whole tab (and the search), not just the rows on screen. #}
+        <button class="kebab__item" type="button" role="menuitem" data-menu="export">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>
+          Export CSV
+        </button>
+      </div>
+    </div>
     </div>
   </div>
 
@@ -81,24 +167,37 @@
   <div class="stages">
     <a class="stage-chip {{ 'active' if not stage else '' }}" href="/?view=applied">All ({{ counts.applied }})</a>
     {% for value, label, n in stage_counts %}
-      <a class="stage-chip {{ 'active' if stage == value else '' }} stage--{{ value }}{{ ' empty' if not n else '' }}"
+      <a class="stage-chip {{ 'active' if stage == value else '' }} stage--{{ value }}{{ ' is-empty' if not n else '' }}"
          href="/?view=applied&stage={{ value }}">{{ label }} <span class="stage-chip__n">{{ n }}</span></a>
     {% endfor %}
   </div>
   {% endif %}
 
   <div id="jobs-list">
+  {% if active_filters %}
+  <div class="filter-chips">
+    {% for param, label in active_filters %}
+      <button class="filter-chip" type="button" data-clear="{{ param }}" title="Remove this filter">
+        {{ label }}
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    {% endfor %}
+    {% if active_filters|length > 1 %}<button class="filter-chip filter-chip--all" type="button" data-clear="*">Clear all</button>{% endif %}
+  </div>
+  {% endif %}
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
+          <th class="sel-col"><input type="checkbox" id="sel-all" title="Select all on this page" aria-label="Select all"></th>
           <th>Score</th><th>Job</th><th>Company</th><th>Location</th>
           <th>{{ 'Stage' if view == 'applied' else 'Checked' }}</th><th style="text-align:right;">Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for job in jobs %}
-        <tr>
+        <tr data-id="{{ job.id }}">
+          <td class="sel-col"><input type="checkbox" class="row-check" value="{{ job.id }}" aria-label="Select {{ job.title }}"></td>
           <td><span class="pill {{ score_class(job.score) }}">{{ job.score if job.score is not none else '—' }}</span></td>
           <td>
             <a class="title" href="/jobs/{{ job.id }}">{{ job.title }}</a>
@@ -125,6 +224,12 @@
           {% endif %}
           <td>
             <div class="row-actions">
+              {# Straight to the posting, without opening the job page first. #}
+              {% if job.url %}
+              <a class="icon-btn open-btn" href="{{ job.url }}" target="_blank" rel="noopener" title="Open original posting">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+              </a>
+              {% endif %}
               <form method="post" action="/jobs/{{ job.id }}/pin" data-ajax style="margin:0">
                 <input type="hidden" name="next" value="/?view={{ view }}">
                 <button class="icon-btn pin-btn {{ 'on' if job.pinned else '' }}" type="submit" title="{{ 'Pinned to To review — click to remove' if job.pinned else 'Pin to To review' }}">
@@ -145,8 +250,10 @@
                   Applied
                 </button>
               </form>
-              {# No confirm dialog: removing one row is a routine, one-click action. #}
-              <form method="post" action="/jobs/{{ job.id }}/delete" data-ajax style="margin:0">
+              {# Deletion is permanent, so it asks first; Enter confirms, so it stays quick. #}
+              <form method="post" action="/jobs/{{ job.id }}/delete" data-ajax style="margin:0"
+                    data-confirm="Delete “{{ job.title }}”?" data-confirm-text="It is removed for good."
+                    data-confirm-yes="Yes, delete">
                 <input type="hidden" name="next" value="/?view={{ view }}">
                 <button class="icon-btn danger" type="submit" title="Delete">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
@@ -156,8 +263,11 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" style="padding:var(--sp-5) 4px;">
-          {% if view == 'all' %}
+        <tr><td colspan="7" style="padding:var(--sp-5) 4px;">
+          {% if q and active_filters %}<span class="muted">No jobs on this tab match “{{ q }}” with these filters.</span>
+          {% elif q %}<span class="muted">No jobs on this tab match “{{ q }}”.</span>
+          {% elif active_filters %}<span class="muted">No jobs on this tab match these filters.</span>
+          {% elif view == 'all' %}
             {% if not has_searches %}
               <div class="empty-cta">
                 <div class="empty-cta__title">Create your first search</div>
@@ -188,10 +298,34 @@
   </div>
   {% set shown = jobs|length %}
   {% set total = counts.strong if view=='strong' else (counts.applied if view=='applied' else (counts.saved if view=='saved' else counts.all)) %}
-  {% if list_limit and shown >= list_limit and total > shown %}
+  {% if list_limit and shown >= list_limit and total > shown and not q and not active_filters %}
     <p class="count" style="text-align:center;">Showing the top {{ shown }} of {{ total }}. Refine your searches or clear older results.</p>
   {% endif %}
   </div><!-- /#jobs-list -->
+
+  {# Outside #jobs-list, so a scan refresh never resets it. #}
+  <div class="bulk-bar" id="bulk-bar" role="toolbar" aria-label="Selected jobs" hidden>
+    <span class="bulk-bar__n"><b id="bulk-n">0</b> selected</span>
+    <button class="bulk-btn" type="button" data-bulk="applied">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+      Mark applied
+    </button>
+    <button class="bulk-btn" type="button" data-bulk="save">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9"/></svg>
+      Save
+    </button>
+    <select id="bulk-stage" class="stage-select" aria-label="Set stage">
+      <option value="" hidden selected>Set stage…</option>
+      {% for value, label in stage_labels.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+    </select>
+    <button class="bulk-btn danger" type="button" data-bulk="delete">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+      Delete
+    </button>
+    <button class="bulk-btn ghost" type="button" data-bulk="cancel" title="Stop selecting (Esc)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
 </div>
 
 <script>
@@ -267,6 +401,7 @@
         if (freshList && list) {
           list.innerHTML = freshList.innerHTML;
           renderTimes(list);
+          paintSelection();   // ticks survive a scan refresh
         }
         if (animate && list) {
           void list.offsetWidth;
@@ -289,6 +424,41 @@
       }
     }
 
+    // ---- Search ---------------------------------------------------------
+    // The box narrows whichever tab is open and follows you across tabs. The
+    // query lives in the URL, so a refresh or the back button keeps it.
+    var search = document.getElementById('job-search');
+    // Search and filters follow you to another tab; the stage does not (it
+    // belongs to Applied, and the tab links already leave it out).
+    var FILTER_PARAMS = ['status', 'company', 'source', 'since', 'min'];
+    function withQuery(href) {
+      var u = new URL(href, location.href);
+      var cur = new URL(location.href).searchParams;
+      var q = search.value.trim();
+      if (q) u.searchParams.set('q', q); else u.searchParams.delete('q');
+      FILTER_PARAMS.forEach(function (k) {
+        if (cur.get(k)) u.searchParams.set(k, cur.get(k)); else u.searchParams.delete(k);
+      });
+      return u.pathname + u.search;
+    }
+    // The stage chips are plain links; make them keep the search and filters too.
+    area.addEventListener('mousedown', function (ev) {
+      var chip = ev.target.closest('a.stage-chip');
+      if (chip) chip.href = withQuery(chip.getAttribute('href'));
+    });
+    var searchTimer = null;
+    search.addEventListener('input', function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        var url = withQuery(location.href);
+        history.replaceState({}, '', url);
+        loadArea(url, false);
+      }, 220);
+    });
+    search.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && search.value) { search.value = ''; search.dispatchEvent(new Event('input')); }
+    });
+
     // Tab switch → AJAX, no full reload. The ink bar slides to the clicked
     // tab immediately; the list cross-fades (opacity only, no jump).
     area.addEventListener('click', function (ev) {
@@ -298,17 +468,232 @@
       a.closest('.tabs').querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
       a.classList.add('active');
       if (window.tabInk) tabInk(area);   // slide the indicator now
-      history.pushState({}, '', a.getAttribute('href'));
-      loadArea(a.getAttribute('href'), true);
+      var url = withQuery(a.getAttribute('href'));
+      history.pushState({}, '', url);
+      syncFilters();                     // "Found" becomes "Applied" on that tab
+      clearSelection();                  // a tick on another tab is out of sight
+      loadArea(url, true);
     });
-    window.addEventListener('popstate', function () { loadArea(location.href, true); });
+    window.addEventListener('popstate', function () {
+      search.value = new URL(location.href).searchParams.get('q') || '';
+      syncFilters();
+      clearSelection();
+      loadArea(location.href, true);
+    });
+
+    // ---- Filters ---------------------------------------------------------
+    var filters = document.getElementById('filters');
+    var filtersBtn = filters.querySelector('.filters__btn');
+    var panel = filters.querySelector('.filters__panel');
+    function toggleFilters(show) {
+      panel.hidden = !show;
+      filtersBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
+    }
+    filtersBtn.addEventListener('click', function () { toggleFilters(panel.hidden); });
+    document.addEventListener('mousedown', function (ev) {
+      // The dropdown menus are appended to <body>, so a click inside one is
+      // not "outside" the panel.
+      if (!panel.hidden && !filters.contains(ev.target) && !ev.target.closest('.sel-menu')) toggleFilters(false);
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && !panel.hidden && !document.querySelector('.sel-menu')) {
+        toggleFilters(false);
+        filtersBtn.focus();
+      }
+    });
+
+    // Panel + badge + date label follow the URL - after a chip is removed,
+    // after back/forward, after a tab switch.
+    function syncFilters() {
+      var u = new URL(location.href);
+      var n = 0;
+      panel.querySelectorAll('select[data-param]').forEach(function (sel) {
+        var v = u.searchParams.get(sel.dataset.param) || '';
+        if (v) n++;
+        if (sel.value !== v) {
+          sel.value = v;
+          if (sel.value !== v) sel.value = '';   // a value no longer offered
+          sel.dispatchEvent(new Event('input'));
+        }
+      });
+      var badge = filtersBtn.querySelector('.filters__n');
+      badge.textContent = n;
+      badge.hidden = n === 0;
+      panel.querySelector('[data-date-label]').textContent =
+        (u.searchParams.get('view') === 'applied') ? 'Applied' : 'Found';
+    }
+    function applyFilters(mutate) {
+      var u = new URL(location.href);
+      mutate(u.searchParams);
+      var url = u.pathname + u.search;
+      history.replaceState({}, '', url);
+      syncFilters();
+      clearSelection();
+      loadArea(url, false);
+    }
+    panel.addEventListener('change', function (ev) {
+      var sel = ev.target.closest('select[data-param]');
+      if (!sel) return;
+      applyFilters(function (p) {
+        if (sel.value) p.set(sel.dataset.param, sel.value); else p.delete(sel.dataset.param);
+      });
+    });
+    panel.querySelector('[data-filter-reset]').addEventListener('click', function () {
+      applyFilters(function (p) { FILTER_PARAMS.forEach(function (k) { p.delete(k); }); });
+    });
+    area.addEventListener('click', function (ev) {
+      var chip = ev.target.closest('[data-clear]');
+      if (!chip) return;
+      var k = chip.dataset.clear;
+      applyFilters(function (p) {
+        (k === '*' ? FILTER_PARAMS : [k]).forEach(function (x) { p.delete(x); });
+      });
+    });
+
+    // ---- "⋯" menu -------------------------------------------------------
+    var menuWrap = document.getElementById('list-menu');
+    var menuBtn = menuWrap.querySelector('.icon-btn');
+    var menu = menuWrap.querySelector('.kebab__menu');
+    function toggleMenu(show) {
+      menu.hidden = !show;
+      menuBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
+      if (show) menu.querySelector('.kebab__item').focus();
+    }
+    menuBtn.addEventListener('click', function () { toggleMenu(menu.hidden); });
+    document.addEventListener('mousedown', function (ev) {
+      if (!menu.hidden && !menuWrap.contains(ev.target)) toggleMenu(false);
+    });
+    menu.addEventListener('keydown', function (ev) {
+      var items = Array.prototype.slice.call(menu.querySelectorAll('.kebab__item'));
+      var i = items.indexOf(document.activeElement);
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); items[(i + 1) % items.length].focus(); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      else if (ev.key === 'Escape') { toggleMenu(false); menuBtn.focus(); }
+    });
+    menu.addEventListener('click', function (ev) {
+      var item = ev.target.closest('[data-menu]');
+      if (!item) return;
+      toggleMenu(false);
+      if (item.dataset.menu === 'select') setSelecting(true);
+      else if (item.dataset.menu === 'export') {
+        // Same tab, stage and search as on screen.
+        location.href = '/export.csv' + new URL(location.href).search;
+      }
+    });
+
+    // ---- Selection + bulk actions ---------------------------------------
+    // Ticked ids live here, not in the checkboxes: the list is re-rendered on
+    // every scan refresh, and paintSelection() puts the ticks back.
+    var selected = new Set();
+    var bar = document.getElementById('bulk-bar');
+    var bulkStage = document.getElementById('bulk-stage');
+
+    function viewName() { return new URL(location.href).searchParams.get('view') || 'strong'; }
+
+    function paintSelection() {
+      var rows = area.querySelectorAll('#jobs-list tr[data-id]');
+      var onPage = new Set();
+      rows.forEach(function (tr) {
+        var id = tr.dataset.id, on = selected.has(id);
+        onPage.add(id);
+        tr.classList.toggle('is-selected', on);
+        var box = tr.querySelector('.row-check');
+        if (box) box.checked = on;
+      });
+      // A job that left the list (deleted, applied elsewhere) is no longer
+      // something you can see, so it can no longer be acted on.
+      selected.forEach(function (id) { if (!onPage.has(id)) selected.delete(id); });
+      var all = document.getElementById('sel-all');
+      if (all) {
+        all.checked = rows.length > 0 && selected.size === rows.length;
+        all.indeterminate = selected.size > 0 && selected.size < rows.length;
+      }
+      document.getElementById('bulk-n').textContent = selected.size;
+      bar.querySelectorAll('[data-bulk]:not([data-bulk="cancel"])').forEach(function (b) {
+        b.disabled = selected.size === 0;
+      });
+      bulkStage.disabled = selected.size === 0;
+      // "Mark applied" means nothing on the Applied tab.
+      bar.querySelector('[data-bulk="applied"]').hidden = viewName() === 'applied';
+    }
+
+    function setSelecting(on) {
+      area.classList.toggle('selecting', on);
+      bar.hidden = !on;
+      if (!on) selected.clear();
+      paintSelection();
+    }
+    function clearSelection() { selected.clear(); paintSelection(); }
+
+    area.addEventListener('change', function (ev) {
+      var t = ev.target;
+      if (t.id === 'sel-all') {
+        area.querySelectorAll('#jobs-list tr[data-id]').forEach(function (tr) {
+          if (t.checked) selected.add(tr.dataset.id); else selected.delete(tr.dataset.id);
+        });
+        paintSelection();
+      } else if (t.classList.contains('row-check')) {
+        if (t.checked) selected.add(t.value); else selected.delete(t.value);
+        paintSelection();
+      }
+    });
+    // While selecting, a click anywhere on a row ticks it (links and buttons
+    // in the row keep working as usual).
+    area.addEventListener('click', function (ev) {
+      if (!area.classList.contains('selecting')) return;
+      var tr = ev.target.closest('#jobs-list tr[data-id]');
+      if (!tr || ev.target.closest('a, button, input, select, form')) return;
+      var id = tr.dataset.id;
+      if (selected.has(id)) selected.delete(id); else selected.add(id);
+      paintSelection();
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && !bar.hidden && !document.querySelector('.modal-backdrop, .sel-menu, .filters__panel:not([hidden])')) setSelecting(false);
+    });
+
+    async function runBulk(action, stage) {
+      var ids = Array.from(selected);
+      if (!ids.length) return;
+      var n = ids.length, noun = n === 1 ? 'job' : 'jobs';
+      if (action === 'delete') {
+        var ok = await confirmDialog({ title: 'Delete ' + n + ' ' + noun + '?',
+                                       text: 'They are removed for good.', yes: 'Yes, delete' });
+        if (!ok) return;
+      }
+      var body = new FormData();
+      body.append('action', action);
+      ids.forEach(function (id) { body.append('ids', id); });
+      if (stage) body.append('stage', stage);
+      try {
+        var r = await fetch('/jobs/bulk', { method: 'POST', body: body });
+        var j = await r.json();
+        if (!r.ok) throw new Error(j.error || r.status);
+        var msg = { delete: 'Deleted', applied: 'Marked applied:', save: 'Saved', stage: 'Stage set for' }[action];
+        if (window.showToast) showToast(msg + ' ' + j.done + ' ' + (j.done === 1 ? 'job' : 'jobs') + '.');
+      } catch (e) {
+        if (window.showToast) showToast('Could not apply that: ' + e.message, 'warn');
+      }
+      setSelecting(false);
+      loadArea(location.href, false);
+    }
+    bar.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-bulk]');
+      if (!b || b.disabled) return;
+      if (b.dataset.bulk === 'cancel') setSelecting(false);
+      else runBulk(b.dataset.bulk);
+    });
+    bulkStage.addEventListener('change', function () {
+      var v = bulkStage.value;
+      bulkStage.value = '';
+      bulkStage.dispatchEvent(new Event('input'));
+      if (v) runBulk('stage', v);
+    });
 
     // Row actions → background POST, then quiet refresh (no animation).
     area.addEventListener('submit', async function (ev) {
       var form = ev.target;
       if (!form.hasAttribute('data-ajax')) return;
       ev.preventDefault();
-      if (form.dataset.confirm && !confirm(form.dataset.confirm)) return;
       var btn = form.querySelector('button');
       if (form.action.endsWith('/stop') && btn) btn.textContent = 'Stopping…';
       // Fade the row out immediately on delete so the click feels instant.
