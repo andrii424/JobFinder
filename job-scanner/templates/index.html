@@ -65,7 +65,12 @@
       <a class="tab {{ 'active' if view=='saved' else '' }}" href="/?view=saved">Saved ({{ counts.saved }})</a>
       <a class="tab {{ 'active' if view=='applied' else '' }}" href="/?view=applied">Applied ({{ counts.applied }})</a>
     </div>
-    <div id="list-tools">
+    <div id="list-tools" style="display:flex; gap:var(--sp-2);">
+      {% if jobs %}
+      {# Exports the whole tab, not just the LIST_LIMIT rows on screen. #}
+      <a class="btn" href="/export.csv?view={{ view }}{{ '&stage=' ~ stage if stage else '' }}"
+         title="Download every job on this tab as CSV">Export CSV</a>
+      {% endif %}
       {% if jobs and view in ('all', 'strong') %}
       <form method="post" action="/jobs/clear" data-ajax style="margin:0"
             data-confirm="{{ 'Clear ALL scanned jobs? Saved, applied and pinned ones are kept.' if view=='all' else 'Clear the To review list (score ≥ ' ~ threshold ~ ')? Saved, applied and pinned ones are kept.' }}">
@@ -125,6 +130,12 @@
           {% endif %}
           <td>
             <div class="row-actions">
+              {# Straight to the posting, without opening the job page first. #}
+              {% if job.url %}
+              <a class="icon-btn open-btn" href="{{ job.url }}" target="_blank" rel="noopener" title="Open original posting">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+              </a>
+              {% endif %}
               <form method="post" action="/jobs/{{ job.id }}/pin" data-ajax style="margin:0">
                 <input type="hidden" name="next" value="/?view={{ view }}">
                 <button class="icon-btn pin-btn {{ 'on' if job.pinned else '' }}" type="submit" title="{{ 'Pinned to To review — click to remove' if job.pinned else 'Pin to To review' }}">

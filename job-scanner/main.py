@@ -21,6 +21,8 @@ Binds to 127.0.0.1 by default (local tool, no auth - see README).
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import re
@@ -51,7 +53,7 @@ SORT_OPTIONS: dict[str, str] = {
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
@@ -399,6 +401,50 @@ async def index(
             # Human names for the per-row source badge.
             "source_labels": {v: n for v, n, _ in SEARCH_SOURCE_OPTIONS},
         },
+    )
+
+
+_CSV_COLUMNS = ["score", "title", "company", "location", "url", "match_summary",
+                "source", "posted_at", "scraped_at", "stage"]
+
+
+def _csv_cell(value) -> str:
+    """Scraped text goes into a file people open in Excel: a title starting with
+    '=', '+', '-' or '@' would run as a formula there, so it is quoted out."""
+    s = "" if value is None else str(value)
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
+@app.get("/export.csv")
+async def export_csv(view: str = "strong", stage: str = ""):
+    """The current Jobs tab as CSV - every row, not just the LIST_LIMIT on
+    screen, and best score first (Applied keeps its applied-at order)."""
+    app_settings = await queries.get_app_settings()
+    threshold = int(app_settings.get("copilot_min_score", 60))
+    view = view if view in ("all", "strong", "saved", "applied") else "strong"
+    stage = stage if pipeline.is_valid(stage) else ""
+    if view == "applied":
+        jobs = await queries.list_applied(stage or None, order="applied")
+    elif view == "saved":
+        jobs = await queries.list_favorites(order="score")
+    elif view == "strong":
+        jobs = await queries.list_strong_jobs(threshold, order="score")
+    else:
+        jobs = await queries.list_jobs(applied=0, order="score")
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_CSV_COLUMNS)
+    for job in jobs:
+        # `stage` defaults to 'applied' in the table; it only means something once applied.
+        row = {**job, "stage": job.get("stage") if job.get("applied") else ""}
+        writer.writerow([_csv_cell(row.get(c)) for c in _CSV_COLUMNS])
+    filename = f"jobfinder-{view}-{datetime.now().strftime('%Y-%m-%d')}.csv"
+    # BOM so Excel reads the file as UTF-8 instead of mangling non-ASCII names.
+    return Response(
+        content="﻿" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
