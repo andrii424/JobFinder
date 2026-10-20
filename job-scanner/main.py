@@ -21,6 +21,8 @@ Binds to 127.0.0.1 by default (local tool, no auth - see README).
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import re
@@ -51,7 +53,7 @@ SORT_OPTIONS: dict[str, str] = {
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
@@ -323,6 +325,7 @@ async def index(
     request: Request,
     view: str = "strong",   # first tab: To review
     stage: str = "",        # Applied tab only: narrow to one pipeline stage
+    q: str = "",            # search box: title / company / location contains
 ):
     """Four tabs, firehose-first: 'all' (every not-yet-applied job), 'strong'
     (the "To review" list: score >= threshold or pinned), 'saved' (favorites),
@@ -347,13 +350,13 @@ async def index(
     # template change rather than a rewrite.
     sort = "applied" if view == "applied" else "recent"
     if view == "applied":
-        jobs = await queries.list_applied(stage or None, limit=LIST_LIMIT, order=sort)
+        jobs = await queries.list_applied(stage or None, limit=LIST_LIMIT, order=sort, q=q)
     elif view == "saved":
-        jobs = await queries.list_favorites(order=sort)
+        jobs = await queries.list_favorites(order=sort, q=q)
     elif view == "strong":
-        jobs = await queries.list_strong_jobs(threshold, limit=LIST_LIMIT, order=sort)
+        jobs = await queries.list_strong_jobs(threshold, limit=LIST_LIMIT, order=sort, q=q)
     else:  # 'all' - the firehose: every not-yet-applied job
-        jobs = await queries.list_jobs(applied=0, limit=LIST_LIMIT, order=sort)
+        jobs = await queries.list_jobs(applied=0, limit=LIST_LIMIT, order=sort, q=q)
 
     # Weekly/daily applied stats for the dashboard band. Week starts Monday.
     now_local = datetime.now().astimezone()
@@ -384,6 +387,7 @@ async def index(
             "jobs": jobs,
             "view": view,
             "stage": stage,
+            "q": q.strip(),
             "stage_counts": stage_counts,
             "stage_labels": pipeline.LABELS,
             "threshold": threshold,
@@ -399,6 +403,50 @@ async def index(
             # Human names for the per-row source badge.
             "source_labels": {v: n for v, n, _ in SEARCH_SOURCE_OPTIONS},
         },
+    )
+
+
+_CSV_COLUMNS = ["score", "title", "company", "location", "url", "match_summary",
+                "source", "posted_at", "scraped_at", "stage"]
+
+
+def _csv_cell(value) -> str:
+    """Scraped text goes into a file people open in Excel: a title starting with
+    '=', '+', '-' or '@' would run as a formula there, so it is quoted out."""
+    s = "" if value is None else str(value)
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
+@app.get("/export.csv")
+async def export_csv(view: str = "strong", stage: str = "", q: str = ""):
+    """The current Jobs tab as CSV - every row, not just the LIST_LIMIT on
+    screen, and best score first (Applied keeps its applied-at order)."""
+    app_settings = await queries.get_app_settings()
+    threshold = int(app_settings.get("copilot_min_score", 60))
+    view = view if view in ("all", "strong", "saved", "applied") else "strong"
+    stage = stage if pipeline.is_valid(stage) else ""
+    if view == "applied":
+        jobs = await queries.list_applied(stage or None, order="applied", q=q)
+    elif view == "saved":
+        jobs = await queries.list_favorites(order="score", q=q)
+    elif view == "strong":
+        jobs = await queries.list_strong_jobs(threshold, order="score", q=q)
+    else:
+        jobs = await queries.list_jobs(applied=0, order="score", q=q)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_CSV_COLUMNS)
+    for job in jobs:
+        # `stage` defaults to 'applied' in the table; it only means something once applied.
+        row = {**job, "stage": job.get("stage") if job.get("applied") else ""}
+        writer.writerow([_csv_cell(row.get(c)) for c in _CSV_COLUMNS])
+    filename = f"jobfinder-{view}-{datetime.now().strftime('%Y-%m-%d')}.csv"
+    # BOM so Excel reads the file as UTF-8 instead of mangling non-ASCII names.
+    return Response(
+        content="﻿" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -815,6 +863,42 @@ async def toggle_applied(job_id: int, next: str = Form("/")):
 async def delete_job_route(job_id: int, next: str = Form("/")):
     await queries.delete_job(job_id)
     return RedirectResponse(url=next or "/", status_code=303)
+
+
+@app.post("/jobs/bulk")
+async def bulk_jobs_route(action: str = Form(...), ids: list[int] = Form(...),
+                         stage: str = Form("")):
+    """One action over the rows ticked on the Jobs page. Each one goes through
+    the same query the single-row button uses, so a bulk action can never mean
+    something the row button does not.
+
+    'applied' and 'save' only SET the flag. The row buttons toggle, but a
+    selection mixes both states and toggling would undo half of it. Already
+    applied jobs are skipped, because set_applied() restamps applied_at and
+    that would move them into today's goal and this week's count."""
+    if action == "stage" and not pipeline.is_valid(stage):
+        return JSONResponse({"error": "unknown stage"}, status_code=400)
+    if action not in ("delete", "applied", "save", "stage"):
+        return JSONResponse({"error": "unknown action"}, status_code=400)
+    done = 0
+    for job_id in dict.fromkeys(ids):   # de-duplicated, order kept
+        job = await queries.get_job(job_id)
+        if job is None:
+            continue
+        if action == "delete":
+            await queries.delete_job(job_id)
+        elif action == "applied":
+            if job.get("applied"):
+                continue
+            await queries.set_applied(job_id, 1)
+        elif action == "save":
+            if job.get("favorite"):
+                continue
+            await queries.toggle_favorite(job_id)
+        else:
+            await queries.set_stage(job_id, stage)
+        done += 1
+    return JSONResponse({"ok": True, "done": done})
 
 
 @app.post("/jobs/clear")

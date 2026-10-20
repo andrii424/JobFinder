@@ -40,10 +40,12 @@
         {% if s.experience %}<span class="tag">level set</span>{% endif %}
       </div>
       <div class="actions">
-        <a class="btn secondary sm" href="/search/{{ s.id }}">Edit</a>
+        <a class="btn tint-blue sm" href="/search/{{ s.id }}">Edit</a>
         <form method="post" action="/search/{{ s.id }}/delete" style="margin:0"
-              onsubmit="return confirm('Delete this search?');">
-          <button class="btn secondary sm" type="submit">Delete</button>
+              data-confirm="Delete the search “{{ s.name }}”?"
+              data-confirm-text="Jobs it already found stay in your lists."
+              data-confirm-yes="Yes, delete">
+          <button class="btn tint-red sm" type="submit">Delete</button>
         </form>
       </div>
     </div>

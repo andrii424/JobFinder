@@ -137,7 +137,7 @@
     .stage-chip.active .stage-chip__n { color: rgba(255,255,255,.75); }
     /* A stage nobody has reached stays visible but recedes: the row must not
        reshuffle every time an application moves. */
-    .stage-chip.empty { opacity: .5; }
+    .stage-chip.is-empty { opacity: .5; }   /* not .empty: that is the padded empty-state card */
     .stage-chip__n { color: var(--faint); font-variant-numeric: tabular-nums; }
 
     /* One control does two jobs: picking a stage also marks the job applied. */
@@ -342,6 +342,7 @@
     .icon-btn.pin-btn:hover { color: var(--accent); border-color: rgba(74,225,118,.45); background: rgba(74,225,118,.12); }
     .icon-btn.pin-btn.on { color: var(--accent); border-color: rgba(74,225,118,.45); }
     .icon-btn.pin-btn.on:hover { background: rgba(74,225,118,.14); }
+    a.icon-btn { text-decoration: none; }
     /* Small badge marking jobs pulled via the Chrome extension (logged-in session). */
     .ext-badge { display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 4px;
       font-size: 10px; font-weight: 700; letter-spacing: .04em; vertical-align: middle;
@@ -436,7 +437,7 @@
        below can even offer, so the order has to read as an order. */
     .ai-step { font-size: 14px; font-weight: 650; margin: 0 0 var(--sp-1); }
 
-    input[type="text"], input[type="number"], select, textarea {
+    input[type="text"], input[type="number"], input[type="password"], select, textarea {
       width: 100%; padding: 9px 11px; margin: 0;
       background: var(--surface-2); color: var(--text);
       border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
@@ -444,7 +445,7 @@
       transition: border-color .12s, box-shadow .12s;
     }
     input::placeholder, textarea::placeholder { color: var(--faint); }
-    input[type="text"], input[type="number"], select { height: var(--control-h); }
+    input[type="text"], input[type="number"], input[type="password"], select { height: var(--control-h); }
     textarea { min-height: 120px; resize: vertical; line-height: 1.55; }
     textarea.tall { min-height: 300px; }
     textarea.mid { min-height: 150px; }
@@ -780,6 +781,149 @@
     .match-badge.score-red { background: var(--red-bg); color: var(--red); }
     .match-badge__num { font-size: 28px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
     .match-badge__lbl { font-size: 10px; font-weight: 700; letter-spacing: .08em; margin-top: 4px; opacity: .8; }
+
+    /* ============ Dropdowns ============
+       A native <select> cannot style its open list, so every select is paired
+       with a button + menu (script at the end of this file). The select stays
+       in the form, hidden, and remains the source of truth: forms submit it,
+       inline onchange handlers still fire, and code that rewrites its options
+       or class is mirrored onto the button. */
+    select[data-enhanced] {
+      position: absolute !important; width: 1px !important; height: 1px !important;
+      padding: 0 !important; border: 0 !important; opacity: 0; pointer-events: none;
+    }
+    .sel {
+      display: inline-flex; align-items: center; gap: 8px; width: 100%;
+      height: var(--control-h); padding: 0 11px 0 12px; margin: 0;
+      background: var(--surface-2); color: var(--text); text-align: left;
+      border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+      font: inherit; font-size: 13.5px; cursor: pointer;
+      transition: border-color .12s, box-shadow .12s, background .12s;
+    }
+    .sel:hover { border-color: var(--faint); }
+    .sel:focus-visible, .sel[aria-expanded="true"] {
+      outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    .sel:disabled { opacity: .55; cursor: progress; }
+    .sel__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sel__chev { flex: none; color: var(--faint); transition: transform .15s ease; }
+    .sel[aria-expanded="true"] .sel__chev { transform: rotate(180deg); }
+    .sel__dot { display: none; width: 7px; height: 7px; border-radius: 50%; flex: none; background: currentColor; }
+    .sel.sm, .person__actions .sel { height: 30px; width: auto; font-size: 12.5px; }
+    .sel.stage-select {
+      height: 30px; width: auto; min-width: 140px; padding: 0 9px 0 11px;
+      border-radius: var(--radius-pill); background: var(--surface); font-size: 12.5px; font-weight: 500;
+    }
+    .sel.stage-select .sel__dot { display: inline-block; }
+    .sel.stage-select .sel__chev { color: currentColor; opacity: .6; }
+
+    .sel-menu {
+      position: fixed; z-index: 300; min-width: 160px; max-height: 300px; overflow-y: auto;
+      padding: 5px; background: var(--surface); border: 1px solid var(--line);
+      border-radius: 10px; box-shadow: 0 14px 34px rgba(20,19,19,.14), 0 2px 6px rgba(20,19,19,.06);
+      animation: sel-in .12s ease-out;
+    }
+    @keyframes sel-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+    .sel-opt {
+      display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 6px;
+      font-size: 13px; color: var(--text); cursor: pointer; white-space: nowrap; user-select: none;
+    }
+    .sel-opt.active { background: var(--surface-3); }
+    .sel-opt[aria-selected="true"] { font-weight: 600; }
+    .sel-opt[aria-disabled="true"] { opacity: .45; cursor: default; }
+    .sel-opt__label { flex: 1; }
+    .sel-opt__check { flex: none; color: var(--accent); visibility: hidden; }
+    .sel-opt[aria-selected="true"] .sel-opt__check { visibility: visible; }
+    .sel-group { padding: 8px 10px 4px; font-size: 11px; font-weight: 650; letter-spacing: .04em;
+                 text-transform: uppercase; color: var(--faint); }
+    /* Stage colours, one per step: grey → amber → green → strong green; rejected fades. */
+    .sel-opt .sel__dot { display: inline-block; background: var(--dot, var(--muted)); }
+    .stage-dot--applied { --dot: var(--muted); } .stage-dot--assignment { --dot: var(--amber); }
+    .stage-dot--hr_interview, .stage-dot--tech_interview, .stage-dot--final_interview { --dot: var(--accent); }
+    .stage-dot--offer { --dot: var(--green); } .stage-dot--rejected { --dot: var(--faint); }
+
+    /* ============ Confirm dialog ============ */
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 400; display: flex; align-items: center; justify-content: center;
+      padding: 16px; background: rgba(20,19,19,.38); animation: fade-in .14s ease-out;
+    }
+    @keyframes fade-in { from { opacity: 0; } }
+    .modal {
+      width: 100%; max-width: 400px; background: var(--surface); border-radius: 12px;
+      padding: 22px 22px 18px; box-shadow: 0 24px 60px rgba(0,0,0,.22);
+      animation: sel-in .16s ease-out;
+    }
+    .modal__title { font-size: 15.5px; font-weight: 650; margin: 0 0 6px; overflow-wrap: anywhere; }
+    .modal__text { font-size: 13.5px; color: var(--muted); margin: 0; }
+    .modal__actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: 20px; }
+    .btn.danger-solid { background: var(--red); border-color: var(--red); color: #FFFFFF; }
+    .btn.danger-solid:hover { background: #A93226; }
+
+    /* Tinted secondary buttons: blue for edit, red for delete. */
+    .btn.tint-blue { background: #EAF1FE; color: #1D4ED8; border-color: rgba(37,99,235,.28); }
+    .btn.tint-blue:hover { background: #DBE6FD; border-color: rgba(37,99,235,.5); }
+    .btn.tint-red { background: var(--red-bg); color: var(--red); border-color: rgba(192,57,43,.28); }
+    .btn.tint-red:hover { background: #F6D9D4; border-color: rgba(192,57,43,.5); }
+
+    /* ============ Jobs list: search, menu, selection ============ */
+    .job-search { position: relative; display: flex; align-items: center; }
+    .job-search svg { position: absolute; left: 11px; color: var(--faint); pointer-events: none; }
+    .job-search input {
+      width: 240px; height: var(--control-h); padding: 0 12px 0 33px; margin: 0;
+      background: var(--surface); color: var(--text); font: inherit; font-size: 13.5px;
+      border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+      -webkit-appearance: none; appearance: none; transition: border-color .12s, box-shadow .12s, width .2s;
+    }
+    .job-search input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); width: 280px; }
+    .job-search input::-webkit-search-cancel-button { cursor: pointer; }
+
+    .kebab { position: relative; }
+    .kebab > .icon-btn { width: var(--control-h); height: var(--control-h); }
+    .kebab__menu {
+      position: absolute; right: 0; top: calc(100% + 6px); z-index: 300; min-width: 190px;
+      padding: 5px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+      box-shadow: 0 14px 34px rgba(20,19,19,.14), 0 2px 6px rgba(20,19,19,.06);
+      animation: sel-in .12s ease-out;
+    }
+    .kebab__menu[hidden] { display: none; }
+    .kebab__item {
+      display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; margin: 0;
+      background: none; border: 0; border-radius: 6px; font: inherit; font-size: 13px;
+      color: var(--text); text-align: left; cursor: pointer;
+    }
+    .kebab__item:hover, .kebab__item:focus-visible { background: var(--surface-3); outline: none; }
+    .kebab__item svg { color: var(--muted); flex: none; }
+
+    .sel-col { display: none; width: 34px; }
+    .selecting .sel-col { display: table-cell; }
+    .sel-col input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+    .selecting tbody tr { cursor: pointer; }
+    .selecting tbody tr.is-selected td { background: var(--accent-soft); }
+
+    .bulk-bar {
+      position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 250;
+      display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 16px;
+      max-width: calc(100vw - 32px); flex-wrap: wrap;
+      background: var(--header-bg); color: var(--header-text);
+      border: 1px solid var(--header-line); border-radius: 12px; box-shadow: 0 14px 40px rgba(0,0,0,.28);
+      animation: bulk-in .18s ease-out;
+    }
+    .bulk-bar[hidden] { display: none; }
+    @keyframes bulk-in { from { opacity: 0; transform: translate(-50%, 10px); } }
+    .bulk-bar__n { font-size: 13px; color: var(--header-muted); margin-right: 6px; white-space: nowrap; }
+    .bulk-bar__n b { color: var(--header-text); font-variant-numeric: tabular-nums; }
+    .bulk-btn {
+      display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; margin: 0;
+      background: #232222; color: var(--header-text); border: 1px solid #343333; border-radius: 7px;
+      font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap;
+    }
+    .bulk-btn:hover:not(:disabled) { background: #2E2D2D; }
+    .bulk-btn:disabled { opacity: .4; cursor: default; }
+    .bulk-btn.danger { background: rgba(192,57,43,.18); border-color: rgba(231,76,60,.45); color: #F3A79D; }
+    .bulk-btn.danger:hover:not(:disabled) { background: rgba(192,57,43,.32); }
+    .bulk-btn.ghost { background: none; border-color: transparent; color: var(--header-muted); padding: 0 8px; }
+    .bulk-bar .sel.stage-select { background: #232222; border-color: #343333; color: var(--header-text); min-width: 130px; height: 32px; border-radius: 7px; }
+    .bulk-bar .sel.stage-select .sel__dot { display: none; }
   </style>
 </head>
 <body>
@@ -1091,6 +1235,253 @@
     }, true);
     // Font metrics can shift positions after webfonts load — re-measure.
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { tabInk(); });
+  </script>
+  <script>
+    // Confirm dialog: confirmDialog({title, text, yes, no}) → Promise<boolean>.
+    // Enter confirms, Escape or a click outside cancels.
+    window.confirmDialog = function (opts) {
+      return new Promise(function (resolve) {
+        var prev = document.activeElement;
+        var back = document.createElement('div');
+        back.className = 'modal-backdrop';
+        back.innerHTML =
+          '<div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="modal-title">' +
+            '<p class="modal__title" id="modal-title"></p><p class="modal__text"></p>' +
+            '<div class="modal__actions">' +
+              '<button type="button" class="btn secondary" data-no></button>' +
+              '<button type="button" class="btn danger-solid" data-yes></button>' +
+            '</div></div>';
+        back.querySelector('.modal__title').textContent = opts.title || 'Are you sure?';
+        var text = back.querySelector('.modal__text');
+        if (opts.text) text.textContent = opts.text; else text.remove();
+        var yes = back.querySelector('[data-yes]'), no = back.querySelector('[data-no]');
+        yes.textContent = opts.yes || 'Yes';
+        no.textContent = opts.no || 'No';
+        function done(ok) {
+          document.removeEventListener('keydown', onKey, true);
+          back.remove();
+          if (prev && prev.focus) prev.focus();
+          resolve(ok);
+        }
+        function onKey(ev) {
+          if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); done(false); }
+          else if (ev.key === 'Tab') {      // keep focus on the two buttons
+            ev.preventDefault();
+            (document.activeElement === yes ? no : yes).focus();
+          }
+        }
+        yes.addEventListener('click', function () { done(true); });
+        no.addEventListener('click', function () { done(false); });
+        back.addEventListener('mousedown', function (ev) { if (ev.target === back) done(false); });
+        document.addEventListener('keydown', onKey, true);
+        document.body.appendChild(back);
+        yes.focus();
+      });
+    };
+
+    // Any form with data-confirm asks first. Runs in the capture phase so it
+    // decides before the page's own submit handlers (the Jobs list AJAX) see
+    // the event. data-confirm-yes names the red button.
+    document.addEventListener('submit', function (ev) {
+      var f = ev.target;
+      if (!f.dataset || !f.dataset.confirm) return;
+      if (f._confirmed) { f._confirmed = false; return; }
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      confirmDialog({ title: f.dataset.confirm, text: f.dataset.confirmText,
+                      yes: f.dataset.confirmYes }).then(function (ok) {
+        if (!ok) return;
+        f._confirmed = true;
+        if (f.requestSubmit) f.requestSubmit(); else f.submit();
+      });
+    }, true);
+  </script>
+  <script>
+    // Dropdowns: pair every <select> with a styled button + menu. The select
+    // stays the source of truth (see the CSS comment above .sel).
+    (function () {
+      var CHEV = '<svg class="sel__chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+      var CHECK = '<svg class="sel-opt__check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>';
+      var open = null;   // { sel, btn, menu, items, active }
+      var typed = '', typedAt = 0;
+      // A button fires its click on Space *keyup*. When Space has already
+      // opened or chosen on keydown, that late click must not toggle again.
+      var spaceHeld = false;
+
+      function sync(sel) {
+        var b = sel._selBtn;
+        if (!b) return;
+        b.className = 'sel ' + sel.className;
+        var o = sel.options[sel.selectedIndex];
+        b.querySelector('.sel__label').textContent = o ? o.textContent : '';
+        b.disabled = sel.disabled;
+      }
+
+      function enhance(sel) {
+        if (sel.hasAttribute('data-enhanced') || sel.multiple || sel.size > 1) return;
+        sel.setAttribute('data-enhanced', '');
+        sel.tabIndex = -1;
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('aria-haspopup', 'listbox');
+        b.setAttribute('aria-expanded', 'false');
+        b.innerHTML = '<span class="sel__dot"></span><span class="sel__label"></span>' + CHEV;
+        sel._selBtn = b;
+        sel.insertAdjacentElement('afterend', b);
+        sync(sel);
+        // Page code rewrites options (Settings → models) and classes
+        // (setStage recolours the row); mirror both onto the button.
+        new MutationObserver(function () { sync(sel); })
+          .observe(sel, { attributes: true, attributeFilter: ['class', 'disabled'], childList: true, subtree: true });
+        // Code that sets .value directly can fire 'input' to refresh the label.
+        sel.addEventListener('change', function () { sync(sel); });
+        sel.addEventListener('input', function () { sync(sel); });
+        sel.addEventListener('focus', function () { b.focus(); });   // <label for> clicks
+        b.addEventListener('click', function () {
+          if (spaceHeld) return;
+          if (open && open.sel === sel) close(); else openMenu(sel);
+        });
+        b.addEventListener('keydown', function (ev) {
+          if (open) return;
+          if (['ArrowDown', 'ArrowUp', 'Enter', ' '].indexOf(ev.key) !== -1) {
+            ev.preventDefault();
+            if (ev.key === ' ') spaceHeld = true;
+            openMenu(sel);
+          }
+        });
+      }
+
+      function openMenu(sel) {
+        close();
+        var b = sel._selBtn;
+        var menu = document.createElement('div');
+        menu.className = 'sel-menu';
+        menu.setAttribute('role', 'listbox');
+        var stage = sel.classList.contains('stage-select');
+        var items = [];
+        Array.prototype.forEach.call(sel.children, function (node) {
+          if (node.tagName === 'OPTGROUP') {
+            var g = document.createElement('div');
+            g.className = 'sel-group';
+            g.textContent = node.label;
+            menu.appendChild(g);
+            Array.prototype.forEach.call(node.children, add);
+          } else add(node);
+        });
+        function add(o) {
+          if (o.tagName !== 'OPTION' || o.hidden) return;
+          var it = document.createElement('div');
+          it.className = 'sel-opt' + (stage ? ' stage-dot--' + o.value : '');
+          it.setAttribute('role', 'option');
+          it.setAttribute('aria-selected', o.selected ? 'true' : 'false');
+          if (o.disabled) it.setAttribute('aria-disabled', 'true');
+          it.innerHTML = (stage ? '<span class="sel__dot"></span>' : '') +
+                         '<span class="sel-opt__label"></span>' + CHECK;
+          it.querySelector('.sel-opt__label').textContent = o.textContent;
+          it._opt = o;
+          it.addEventListener('mousemove', function () { setActive(items.indexOf(it)); });
+          it.addEventListener('click', function () { choose(it); });
+          menu.appendChild(it);
+          items.push(it);
+        }
+        document.body.appendChild(menu);
+        var r = b.getBoundingClientRect();
+        menu.style.minWidth = r.width + 'px';
+        var h = menu.offsetHeight, w = menu.offsetWidth;
+        var below = window.innerHeight - r.bottom;
+        menu.style.top = (below < h + 12 && r.top > below ? r.top - h - 4 : r.bottom + 4) + 'px';
+        menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+        b.setAttribute('aria-expanded', 'true');
+        open = { sel: sel, btn: b, menu: menu, items: items, active: -1 };
+        var cur = items.findIndex(function (it) { return it._opt.selected; });
+        setActive(cur < 0 ? 0 : cur, true);
+      }
+
+      function setActive(i, scroll) {
+        if (!open || i < 0 || i >= open.items.length) return;
+        if (open.active >= 0) open.items[open.active].classList.remove('active');
+        open.active = i;
+        open.items[i].classList.add('active');
+        if (scroll) open.items[i].scrollIntoView({ block: 'nearest' });
+      }
+
+      function move(step) {
+        if (!open) return;
+        var i = open.active;
+        for (var n = 0; n < open.items.length; n++) {
+          i = Math.max(0, Math.min(open.items.length - 1, i + step));
+          if (open.items[i].getAttribute('aria-disabled') !== 'true') break;
+        }
+        setActive(i, true);
+      }
+
+      function choose(it) {
+        if (!open || it.getAttribute('aria-disabled') === 'true') return;
+        var sel = open.sel, b = open.btn;
+        close();
+        if (!it._opt.selected) {
+          it._opt.selected = true;
+          sel.dispatchEvent(new Event('input', { bubbles: true }));
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        b.focus();
+      }
+
+      function close() {
+        if (!open) return;
+        open.menu.remove();
+        open.btn.setAttribute('aria-expanded', 'false');
+        open = null;
+      }
+
+      document.addEventListener('keydown', function (ev) {
+        if (!open) return;
+        if (ev.key === 'ArrowDown') { ev.preventDefault(); move(1); }
+        else if (ev.key === 'ArrowUp') { ev.preventDefault(); move(-1); }
+        else if (ev.key === 'Home') { ev.preventDefault(); setActive(0, true); }
+        else if (ev.key === 'End') { ev.preventDefault(); setActive(open.items.length - 1, true); }
+        else if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          if (ev.key === ' ') spaceHeld = true;
+          choose(open.items[open.active]);
+        }
+        else if (ev.key === 'Escape') {
+          // Swallow it: Escape also leaves selection mode on the Jobs page.
+          ev.preventDefault(); ev.stopPropagation();
+          var b = open.btn; close(); b.focus();
+        }
+        else if (ev.key === 'Tab') close();
+        else if (ev.key.length === 1) {      // type to jump, like a native select
+          var now = Date.now();
+          typed = (now - typedAt > 700 ? '' : typed) + ev.key.toLowerCase();
+          typedAt = now;
+          var hit = open.items.findIndex(function (it) {
+            return it.textContent.trim().toLowerCase().indexOf(typed) === 0;
+          });
+          if (hit >= 0) setActive(hit, true);
+        }
+      }, true);
+      document.addEventListener('keyup', function (ev) {
+        if (ev.key === ' ' && spaceHeld) setTimeout(function () { spaceHeld = false; }, 0);
+      }, true);
+      document.addEventListener('mousedown', function (ev) {
+        if (open && !open.menu.contains(ev.target) && !open.btn.contains(ev.target)) close();
+      });
+      document.addEventListener('scroll', function (ev) {
+        if (open && !open.menu.contains(ev.target)) close();
+      }, true);
+      window.addEventListener('resize', close);
+
+      function scan(root) {
+        if (root.tagName === 'SELECT') enhance(root);
+        else if (root.querySelectorAll) root.querySelectorAll('select').forEach(enhance);
+      }
+      scan(document.body);
+      // Lists swapped in by AJAX bring their own selects.
+      new MutationObserver(function (muts) {
+        muts.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.nodeType === 1) scan(n); }); });
+      }).observe(document.body, { childList: true, subtree: true });
+    })();
   </script>
 </body>
 </html>

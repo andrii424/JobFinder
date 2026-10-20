@@ -330,6 +330,12 @@ the CV.
 `strong` and `view=strong` were left alone when the label changed — only labels moved.
 **Everything is newest first** (`_RECENT_FIRST = scraped_at DESC, id DESC`; Applied uses `applied_at`). The
 score is a per-row label, not the sort key. ⚠️ This also decides which rows survive `LIST_LIMIT=150`.
+**Search** (`?q=`, 20 Oct 2026) narrows any tab by title / company / location (`queries._with_search`, LIKE with
+`%`/`_` escaped) and is the only way to reach a job past the limit; `/export.csv` takes the same `q`.
+**Bulk actions** (`POST /jobs/bulk`, 20 Oct 2026): "⋯" → Select jobs ticks rows, a bar acts on them — mark applied,
+save, set stage, delete. Each runs the single-row query; *applied* and *save* only SET the flag (the row buttons
+toggle) and skip rows already set, because `set_applied()` restamps `applied_at` and would move old applications
+into today's goal. `tests/test_bulk_and_search.py`.
 
 Other pages: `/jobs/{id}` (detail + copilot tabs), `/profile` (tabs `instructions | advanced | letter` — **the
 CV editor lives here now**, `#cv-mine`; `templates/cv.html` is gone), `/search*`, `/statistic` (the funnel),
@@ -369,8 +375,16 @@ One field, not an event log — it answers "how far did this get", which is the 
   `#cov-digest` in place (server-rendered `partials/`). The plain form POST to `/jobs/{id}/advanced` is the
   fallback, so the button still works with JS off. The base.html generation-spinner handler **skips
   `data-advanced`** — those forms own their own spinner.
-- **No confirm on single-job delete** (the user removes jobs constantly); the row fades out with a toast.
-  Bulk "Clear results" keeps its confirm.
+- **Deletes ask in a styled dialog** (20 Oct 2026, was: no confirm on single-job delete). Any form with
+  `data-confirm` goes through `confirmDialog()` in base.html — a capture-phase submit listener, so it decides
+  before the Jobs list's AJAX handler; `data-confirm-yes` names the red button. Enter confirms, Esc cancels, so a
+  delete is still two keystrokes. Native `confirm()` is gone from the templates.
+- **Every `<select>` is paired with a styled button + menu** (base.html, 20 Oct 2026). The select stays in the
+  form, hidden, as the source of truth: forms submit it, inline `onchange` still fires, and a MutationObserver
+  mirrors option/class/disabled changes (Settings → models, `setStage()` recolouring) onto the button. Code that
+  sets `.value` directly should fire `input` to refresh the label. Stage selects get a coloured dot per stage.
+- ⚠️ **`.empty` is the padded empty-state card** — a dimmed stage chip is `.is-empty`. Reusing `.empty` gave
+  the chips 46px of padding (fixed 20 Oct 2026).
 - Design tokens: `--bg:#FAFAF8 --surface:#FFF --text:#1D1D1D --accent:#16A34A`, dark
   `--header-bg:#141313 --header-text:#F5F4F3 --header-line:#2A2A2A`. Score badges are soft tinted blocks, not
   solid. Topbar 64px, brand left in M PLUS 1; tabs are a segmented control with a white pill.

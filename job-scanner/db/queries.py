@@ -337,6 +337,20 @@ def _job_filters(
     return where, params
 
 
+def _with_search(where: str, params: list[Any], q: str | None) -> tuple[str, list[Any]]:
+    """Narrow a WHERE to jobs whose title, company or location contains `q`.
+    The list shows only the newest LIST_LIMIT rows; search is how an older one
+    is found at all. `%` and `_` in the text are matched literally."""
+    q = (q or "").strip()
+    if not q:
+        return where, params
+    like = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    clause = ("(title LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\' "
+              "OR location LIKE ? ESCAPE '\\')")
+    where = f"{where} AND {clause}" if where else f"WHERE {clause}"
+    return where, [*params, like, like, like]
+
+
 # Newest first, everywhere. The score is shown on each row as a label, so the
 # list reads as a feed of what just came in; `id DESC` breaks ties within the
 # same scan (scraped_at has second resolution). NOTE: this also decides WHICH
@@ -372,10 +386,12 @@ async def list_jobs(
     below_or_unscored: int | None = None,
     limit: int | None = None,
     order: str = "recent",
+    q: str = "",
 ) -> list[dict[str, Any]]:
     """Filterable listing for the web UI. `limit` caps rows (keeps big lists
     fast to render). `order` is a key of SORTS."""
     where, params = _job_filters(min_score, max_score, scored_only, applied, below_or_unscored)
+    where, params = _with_search(where, params, q)
     order_by = _order_by(order)
     query = f"SELECT * FROM jobs {where} {order_by}"
     if limit is not None:
@@ -408,10 +424,10 @@ _STRONG_WHERE = (
 
 
 async def list_strong_jobs(threshold: int, limit: int | None = None,
-                           order: str = "recent") -> list[dict[str, Any]]:
+                           order: str = "recent", q: str = "") -> list[dict[str, Any]]:
     """Jobs at/above the match threshold OR pinned in by hand."""
-    query = f"SELECT * FROM jobs {_STRONG_WHERE} {_order_by(order)}"
-    params: list[Any] = [int(threshold)]
+    where, params = _with_search(_STRONG_WHERE, [int(threshold)], q)
+    query = f"SELECT * FROM jobs {where} {_order_by(order)}"
     if limit is not None:
         query += " LIMIT ?"
         params.append(int(limit))
@@ -542,12 +558,11 @@ async def count_applied_since(iso_ts: str) -> int:
         return int(row[0]) if row else 0
 
 
-async def list_favorites(order: str = "recent") -> list[dict[str, Any]]:
+async def list_favorites(order: str = "recent", q: str = "") -> list[dict[str, Any]]:
+    where, params = _with_search("WHERE favorite = 1", [], q)
     async with conn.connect() as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            f"SELECT * FROM jobs WHERE favorite = 1 {_order_by(order)}"
-        )
+        cur = await db.execute(f"SELECT * FROM jobs {where} {_order_by(order)}", params)
         return [_row_to_dict(r) for r in await cur.fetchall()]
 
 
@@ -1193,14 +1208,15 @@ async def set_stage(job_id: int, stage: str) -> None:
 
 
 async def list_applied(stage: str | None = None, limit: int | None = None,
-                       order: str = "applied") -> list[dict[str, Any]]:
+                       order: str = "applied", q: str = "") -> list[dict[str, Any]]:
     """Applications, most recently applied first, optionally one stage only."""
-    query = "SELECT * FROM jobs WHERE COALESCE(applied, 0) = 1"
+    where = "WHERE COALESCE(applied, 0) = 1"
     params: list[Any] = []
     if stage:
-        query += " AND COALESCE(stage, 'applied') = ?"
+        where += " AND COALESCE(stage, 'applied') = ?"
         params.append(stage)
-    query += f" {_order_by(order, default='applied')}"
+    where, params = _with_search(where, params, q)
+    query = f"SELECT * FROM jobs {where} {_order_by(order, default='applied')}"
     if limit is not None:
         query += " LIMIT ?"
         params.append(int(limit))
