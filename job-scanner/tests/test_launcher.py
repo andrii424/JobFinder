@@ -150,7 +150,7 @@ def test_the_window_lets_text_be_selected():
     import pathlib
 
     src = pathlib.Path(__file__).resolve().parents[1] / "desktop" / "launcher.py"
-    tree = ast.parse(src.read_text())
+    tree = ast.parse(src.read_text(encoding="utf-8"))
 
     opts = [n for n in ast.walk(tree)
             if isinstance(n, ast.Assign)

@@ -344,7 +344,7 @@ def test_every_template_the_code_renders_exists():
 
     import main
 
-    src = Path(main.__file__).read_text()
+    src = Path(main.__file__).read_text(encoding="utf-8")
     referenced = set(re.findall(r'"([a-z_]+\.html)"', src))
     have = {p.name for p in (main.BASE_DIR / "templates").glob("*.html")}
     assert not (referenced - have), referenced - have
@@ -357,7 +357,7 @@ def test_no_template_is_shipped_without_a_route():
 
     import main
 
-    src = Path(main.__file__).read_text()
+    src = Path(main.__file__).read_text(encoding="utf-8")
     referenced = set(re.findall(r'"([a-z_]+\.html)"', src))
     have = {p.name for p in (main.BASE_DIR / "templates").glob("*.html")}
     # base.html is inherited, and the two search partials are included by name.

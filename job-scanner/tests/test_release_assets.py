@@ -103,7 +103,7 @@ def test_outputs_are_ignored_when_looking_for_the_newest_source(tmp_path):
 def test_the_runbook_and_the_gate_agree(tmp_path):
     """A checklist that names different files from the check is the original
     failure in a new place."""
-    runbook = (ROOT / "RELEASE.md").read_text()
+    runbook = (ROOT / "RELEASE.md").read_text(encoding="utf-8")
 
     for asset in ALL:
         assert asset in runbook, f"{asset} is not in RELEASE.md"
@@ -114,7 +114,7 @@ def test_the_runbook_and_the_gate_agree(tmp_path):
 def test_the_project_instructions_point_at_the_runbook():
     """The instruction that used to name only the macOS build is what produced
     four incomplete releases."""
-    claude = (ROOT.parent / "CLAUDE.md").read_text()
+    claude = (ROOT.parent / "CLAUDE.md").read_text(encoding="utf-8")
 
     assert "RELEASE.md" in claude
     assert "JobFinder-Setup.exe" in claude

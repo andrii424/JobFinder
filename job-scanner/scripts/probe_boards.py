@@ -145,7 +145,7 @@ async def main() -> None:
             "boards": rows,
         }
         path = pathlib.Path(__file__).resolve().parent.parent / "scrapers" / "registry" / "eu_boards.json"
-        path.write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n")
+        path.write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"\nреестр перезаписан: {path} ({len(rows)} бордов)")
     total_candidates = sum(len(v) for v in CANDIDATES.values())
     print(f"\nпроверено кандидатов: {total_candidates}, подтверждено: {len(hits)}, "

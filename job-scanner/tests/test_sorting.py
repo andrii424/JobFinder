@@ -142,6 +142,7 @@ def seeded_client():
     an async test."""
     import asyncio
     import sqlite3
+    from contextlib import closing
 
     from fastapi.testclient import TestClient
 
@@ -150,7 +151,9 @@ def seeded_client():
     from db.models import init_db
 
     asyncio.run(init_db())
-    with sqlite3.connect(settings.db_path) as raw:
+    # `with connect()` alone commits but never closes; on Windows the open handle
+    # then stops the next test's fixture from deleting the database file.
+    with closing(sqlite3.connect(settings.db_path)) as raw, raw:
         raw.execute("DELETE FROM jobs")
         raw.execute(
             "INSERT INTO jobs (source, external_id, title, company, scraped_at, "

@@ -78,7 +78,7 @@ def test_nothing_opens_the_database_the_old_way():
     for path in (root / "db").glob("*.py"):
         if path.name == "conn.py":
             continue
-        for i, line in enumerate(path.read_text().splitlines(), 1):
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if "aiosqlite.connect(" in line:
                 offenders.append(f"{path.name}:{i}")
 

@@ -97,8 +97,8 @@ def test_every_paid_call_site_records_what_it_spent():
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[1]
-    m = (root / "matcher" / "matcher.py").read_text()
-    g = (root / "matcher" / "generate.py").read_text()
+    m = (root / "matcher" / "matcher.py").read_text(encoding="utf-8")
+    g = (root / "matcher" / "generate.py").read_text(encoding="utf-8")
 
     assert m.count("await usage.record(") == 4, "title ×2, quick, advanced"
     assert 'usage.record("advanced", self.advanced_model' in m, (

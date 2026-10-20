@@ -173,7 +173,7 @@ def test_the_page_no_longer_tries_to_open_the_window_itself():
     import pathlib
 
     page = (pathlib.Path(__file__).resolve().parents[1]
-            / "templates" / "job_detail.html").read_text()
+            / "templates" / "job_detail.html").read_text(encoding="utf-8")
     people = page[page.index("async function findPeople"):]
     people = people[:people.index("async function draft")]
 
@@ -232,7 +232,7 @@ def test_the_pages_do_not_read_the_bundle_at_request_time():
 
     OURS = {"cv_content", "letter_template", "pipeline", "providers",
             "extension_health", "config", "db", "matcher", "scrapers"}
-    source = (pathlib.Path(__file__).resolve().parents[1] / "main.py").read_text()
+    source = (pathlib.Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
 
     offenders = []
     for fn in ast.walk(ast.parse(source)):

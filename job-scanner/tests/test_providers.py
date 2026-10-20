@@ -410,7 +410,7 @@ def test_nothing_a_person_reads_is_generated_by_the_scanning_model():
 
     WRITERS = {"CopilotGenerator", "structure_cv_html",
                "stream_cv_edit", "stream_letter_edit"}
-    tree = ast.parse((pathlib.Path(__file__).resolve().parents[1] / "main.py").read_text())
+    tree = ast.parse((pathlib.Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8"))
 
     seen = set()
     for node in ast.walk(tree):

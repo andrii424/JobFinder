@@ -89,7 +89,7 @@ def test_both_scan_paths_refuse_to_store_a_non_verdict():
     import pathlib
     import re
 
-    src = (pathlib.Path(__file__).resolve().parents[1] / "scheduler" / "jobs.py").read_text()
+    src = (pathlib.Path(__file__).resolve().parents[1] / "scheduler" / "jobs.py").read_text(encoding="utf-8")
     # Every place that stores a scorer result, with the 12 lines before it.
     for m in re.finditer(r"save_quick_score\(\s*\n?\s*j(id|ob\[)", src):
         before = src[max(0, m.start() - 600):m.start()]

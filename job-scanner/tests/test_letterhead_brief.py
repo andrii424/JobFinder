@@ -14,7 +14,7 @@ import letter_template as lt
 from matcher import generate as gen
 
 PAGE = (pathlib.Path(__file__).resolve().parents[1]
-        / "templates" / "profile.html").read_text()
+        / "templates" / "profile.html").read_text(encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #
@@ -310,7 +310,7 @@ def test_saving_a_pdf_announces_itself():
     """The inline status line sits under a full page of letter and is missed -
     which reads as the button having done nothing."""
     page = (pathlib.Path(__file__).resolve().parents[1]
-            / "templates" / "job_detail.html").read_text()
+            / "templates" / "job_detail.html").read_text(encoding="utf-8")
     fn = page[page.index("async function saveCvPdf"):page.index("async function saveAssetText")]
 
     assert fn.count("showToast(") >= 3, "success, failure and error must all be announced"
@@ -361,7 +361,7 @@ def test_every_pdf_button_on_the_job_page_has_a_preview_beside_it():
     being asked for. Three PDFs live on this page - the CV, the tailored CV and
     the cover letter."""
     page = (pathlib.Path(__file__).resolve().parents[1]
-            / "templates" / "job_detail.html").read_text()
+            / "templates" / "job_detail.html").read_text(encoding="utf-8")
 
     assert page.count("Save PDF</button>") == 3
     assert page.count("Preview PDF</button>") == 3

@@ -381,7 +381,7 @@ def load_registry() -> list[dict[str, str]]:
     import json
 
     try:
-        data = json.loads(REGISTRY_PATH.read_text())
+        data = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         logger.warning("[ats] registry unreadable: %s", exc)
         return []

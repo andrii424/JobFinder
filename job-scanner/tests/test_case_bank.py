@@ -11,7 +11,7 @@ from __future__ import annotations
 import pathlib
 
 PAGE = (pathlib.Path(__file__).resolve().parents[1]
-        / "templates" / "profile.html").read_text()
+        / "templates" / "profile.html").read_text(encoding="utf-8")
 
 # The handler that intercepts both forms, isolated from the rest of the page.
 HANDLER = PAGE[PAGE.index("body.addEventListener('submit'"):

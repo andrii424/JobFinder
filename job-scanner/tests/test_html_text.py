@@ -18,7 +18,7 @@ import pathlib
 from scrapers import base
 from scrapers.base import strip_html
 
-SPEC = (pathlib.Path(__file__).resolve().parents[1] / "desktop" / "JobFinder.spec").read_text()
+SPEC = (pathlib.Path(__file__).resolve().parents[1] / "desktop" / "JobFinder.spec").read_text(encoding="utf-8")
 
 
 def test_the_build_carries_the_codecs():
